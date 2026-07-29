@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Побег из Лабиринта</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Arial', sans-serif; }
+  #game { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+  #hud { position: fixed; top: 0; left: 0; width: 100%; padding: 16px; pointer-events: none; z-index: 10; }
+  #healthBar { width: 220px; height: 22px; background: rgba(0,0,0,0.6); border: 2px solid #c00; border-radius: 12px; overflow: hidden; }
+  #healthFill { width: 100%; height: 100%; background: linear-gradient(90deg, #f33, #ff6); transition: width 0.3s; }
+  #healthLabel { color: #fff; font-size: 13px; text-shadow: 0 0 4px #000; margin-bottom: 4px; letter-spacing: 1px; }
+  #message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 32px; text-align: center; text-shadow: 0 0 10px #000; z-index: 20; display: none; background: rgba(0,0,0,0.7); padding: 24px 40px; border-radius: 12px; border: 2px solid #c00; }
+  #startScreen { position: fixed; inset: 0; background: radial-gradient(circle, #200 0%, #000 80%); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 30; color: #fff; text-align: center; padding: 20px; }
+  #startScreen h1 { font-size: 42px; margin-bottom: 16px; color: #f44; text-shadow: 0 0 20px #f00; letter-spacing: 3px; }
+  #startScreen p { font-size: 16px; margin-bottom: 24px; max-width: 500px; line-height: 1.6; opacity: 0.9; }
+  #startBtn { padding: 14px 40px; font-size: 20px; background: #c00; color: #fff; border: none; border-radius: 8px; cursor: pointer; letter-spacing: 2px; box-shadow: 0 0 20px #f00; transition: transform 0.2s; }
+  #startBtn:hover { transform: scale(1.05); }
+  #joystick { position: fixed; bottom: 40px; left: 40px; width: 140px; height: 140px; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.25); border-radius: 50%; z-index: 15; display: none; }
+  #stick { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60px; height: 60px; background: rgba(255,255,255,0.25); border: 2px solid rgba(255,255,255,0.5); border-radius: 50%; }
+  #lookArea { position: fixed; top: 0; right: 0; width: 50%; height: 100%; z-index: 14; display: none; }
+  #crosshair { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 6px; height: 6px; border: 1px solid rgba(255,255,255,0.4); border-radius: 50%; z-index: 10; pointer-events: none; }
+  #flashlightHint { position: fixed; bottom: 20px; right: 20px; color: rgba(255,255,255,0.6); font-size: 13px; z-index: 15; text-align: right; }
+  @media (pointer: coarse) { #flashlightHint { display: none; } }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">
+  <div id="healthLabel">ЗДОРОВЬЕ</div>
+  <div id="healthBar"><div id="healthFill"></div></div>
+</div>
+<div id="crosshair"></div>
+<div id="joystick"><div id="stick"></div></div>
+<div id="lookArea"></div>
+<div id="flashlightHint">WASD — движение<br>Мышь — обзор<br>F — фонарик</div>
+<div id="message"></div>
+<div id="startScreen">
+  <h1>ЛАБИРИНТ УЖАСА</h1>
+  <p>Найди выход из тёмного лабиринта. Но будь осторожен — в темноте бродит ОН. Используй фонарик, чтобы видеть путь, но помни: свет может привлечь его внимание...</p>
+  <button id="startBtn">НАЧАТЬ ИГРУ</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ---------- MAZE ----------
+const MAZE = [
+  "###############",
+  "#P............#",
+  "#.###.#####.#.#",
+  "#.#.#.#...#.#.#",
+  "#.#.#.#.#.#.#.#",
+  "#.#...#.#.#.#.#",
+  "#.#####.#.#.#.#",
+  "#.......#.#.#.#",
+  "#.#####.#.#.#.#",
+  "#.#...#.#...#.#",
+  "#.#.#.#.#####.#",
+  "#.#.#.#.......#",
+  "#.#.#########.#",
+  "#.#.........E.#",
+  "###############"
+];
+const CELL = 4;
+const WALL_H = 4;
+const COLS = MAZE[0].length;
+const ROWS = MAZE.length;
+
+function cellCenter(r, c) {
+  return new THREE.Vector3(c * CELL + CELL/2 - (COLS*CELL)/2, 0, r * CELL + CELL/2 - (ROWS*CELL)/2);
+}
+function isWall(r, c) {
+  if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
+  return MAZE[r][c] === '#';
+}
+
+// ---------- SCENE ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+scene.fog = new THREE.Fog(0x000000, 1, 25);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 1.6, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.getElementById('game').appendChild(renderer.domElement);
+
+// ---------- LIGHTING ----------
+const ambient = new THREE.AmbientLight(0x1a1a2e, 0.15);
+scene.add(ambient);
+
+// Flashlight (SpotLight)
+const flashlight = new THREE.SpotLight(0xfff2cc, 4, 30, Math.PI / 6, 0.4, 1.2);
+flashlight.castShadow = true;
+flashlight.shadow.mapSize.set(1024, 1024);
+flashlight.shadow.camera.near = 0.1;
+flashlight.shadow.camera.far = 30;
+scene.add(flashlight);
+scene.add(flashlight.target);
+let flashlightOn = true;
+
+// ---------- TEXTURE (procedural wall texture) ----------
+function makeWallTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  // Base stone color
+  ctx.fillStyle = '#3a2e26';
+  ctx.fillRect(0, 0, 512, 512);
+  // Bricks
+  const brickH = 64, brickW = 128;
+  for (let y = 0; y < 512; y += brickH) {
+    const offset = (Math.floor(y / brickH) % 2) * (brickW / 2);
+    for (let x = -brickW; x < 512 + brickW; x += brickW) {
+      const bx = x + offset;
+      // Brick color variation
+      const shade = 50 + Math.random() * 30;
+      ctx.fillStyle = `rgb(${shade+20},${shade+10},${shade})`;
+      ctx.fillRect(bx + 3, y + 3, brickW - 6, brickH - 6);
+      // Highlights
+      ctx.fillStyle = `rgba(255,220,180,${0.05 + Math.random()*0.08})`;
+      ctx.fillRect(bx + 3, y + 3, brickW - 6, 6);
+      // Shadows
+      ctx.fillStyle = `rgba(0,0,0,0.35)`;
+      ctx.fillRect(bx + 3, y + brickH - 9, brickW - 6, 6);
+    }
+  }
+  // Noise / grime
+  for (let i = 0; i < 3000; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.3})`;
+    ctx.fillRect(Math.random()*512, Math.random()*512, 2, 2);
+  }
+  for (let i = 0; i < 800; i++) {
+    ctx.fillStyle = `rgba(255,200,150,${Math.random()*0.15})`;
+    ctx.fillRect(Math.random()*512, Math.random()*512, 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+const wallTex = makeWallTexture();
+
+function makeFloorTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1a1510';
+  ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2000; i++) {
+    ctx.fillStyle = `rgba(${80+Math.random()*40},${60+Math.random()*30},${40+Math.random()*20},${Math.random()*0.4})`;
+    ctx.fillRect(Math.random()*256, Math.random()*256, 2, 2);
+  }
+  // Cracks
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  for (let i = 0; i < 10; i++) {
+    ctx.beginPath();
+    ctx.moveTo(Math.random()*256, Math.random()*256);
+    ctx.lineTo(Math.random()*256, Math.random()*256);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(COLS, ROWS);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ---------- BUILD MAZE ----------
+const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9, metalness: 0.05 });
+const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+const walls = [];
+let playerStart = new THREE.Vector3();
+let exitPos = new THREE.Vector3();
+
+for (let r = 0; r < ROWS; r++) {
+  for (let c = 0; c < COLS; c++) {
+    const ch = MAZE[r][c];
+    if (ch === '#') {
+      const m = new THREE.Mesh(wallGeo, wallMat);
+      const p = cellCenter(r, c);
+      m.position.set(p.x, WALL_H/2, p.z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      scene.add(m);
+      walls.push(m);
+    } else if (ch === 'P') {
+      playerStart = cellCenter(r, c);
+    } else if (ch === 'E') {
+      exitPos = cellCenter(r, c);
+    }
+  }
+}
+
+// Floor
+const floorGeo = new THREE.PlaneGeometry(COLS * CELL, ROWS * CELL);
+const floorMat = new THREE.MeshStandardMaterial({ map: makeFloorTexture(), roughness: 1 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Ceiling
+const ceilMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 1 });
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(COLS * CELL, ROWS * CELL), ceilMat);
+ceiling.rotation.x = Math.PI / 2;
+ceiling.position.y = WALL_H;
+scene.add(ceiling);
+
+// Exit marker (glowing)
+const exitLight = new THREE.PointLight(0x44ff88, 2, 8);
+exitLight.position.set(exitPos.x, 2, exitPos.z);
+scene.add(exitLight);
+const exitMarker = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16),
+  new THREE.MeshBasicMaterial({ color: 0x44ff88 })
+);
+exitMarker.position.set(exitPos.x, 0.05, exitPos.z);
+scene.add(exitMarker);
+
+// ---------- PLAYER ----------
+const player = {
+  pos: new THREE.Vector3(playerStart.x, 1.6, playerStart.z),
+  vel: new THREE.Vector3(),
+  yaw: 0,
+  pitch: 0,
+  radius: 0.4,
+  health: 100,
+  speed: 4.5
+};
+camera.position.copy(player.pos);
+
+// ---------- MONSTER ----------
+const monster = {
+  group: new THREE.Group(),
+  pos: new THREE.Vector3(),
+  speed: 1.4,
+  radius: 0.7,
+  mesh: null,
+  bobT: 0
+};
+
+// Spawn monster far from player
+function findMonsterSpawn() {
+  // farthest open cell from player
+  let best = null, bestD = -1;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (MAZE[r][c] !== '#' && MAZE[r][c] !== 'P' && MAZE[r][c] !== 'E') {
+        const p = cellCenter(r, c);
+        const d = p.distanceTo(playerStart);
+        if (d > bestD) { bestD = d; best = p; }
+      }
+    }
+  }
+  return best;
+}
+const monsterSpawn = findMonsterSpawn();
+monster.pos.set(monsterSpawn.x, 0, monsterSpawn.z);
+monster.group.position.copy(monster.pos);
+scene.add(monster.group);
+
+// Try to load GLB, fallback to procedural monster
+function createFallbackMonster() {
+  const g = new THREE.Group();
+  // Body
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1a0a0a, roughness: 0.6 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.2, 6, 12), bodyMat);
+  body.position.y = 1.2;
+  body.castShadow = true;
+  g.add(body);
+  // Head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 12), bodyMat);
+  head.position.y = 2.1;
+  head.castShadow = true;
+  g.add(head);
+  // Eyes
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
+  const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
+  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+  eyeL.position.set(-0.15, 2.15, 0.35);
+  g.add(eyeL);
+  const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+  eyeR.position.set(0.15, 2.15, 0.35);
+  g.add(eyeR);
+  // Eye glow
+  const eyeLight = new THREE.PointLight(0xff2222, 1.5, 5);
+  eyeLight.position.set(0, 2.15, 0.4);
+  g.add(eyeLight);
+  // Arms
+  const armGeo = new THREE.CapsuleGeometry(0.15, 0.9, 4, 8);
+  const armL = new THREE.Mesh(armGeo, bodyMat);
+  armL.position.set(-0.55, 1.3, 0);
+  armL.rotation.z = 0.2;
+  g.add(armL);
+  const armR = new THREE.Mesh(armGeo, bodyMat);
+  armR.position.set(0.55, 1.3, 0);
+  armR.rotation.z = -0.2;
+  g.add(armR);
+  return g;
+}
+
+const loader = new GLTFLoader();
+loader.load(
+  'monster_concept.glb',
+  (gltf) => {
+    const model = gltf.scene;
+    model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    // Scale to reasonable size
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const targetH = 2.4;
+    model.scale.setScalar(targetH / size.y);
+    const box2 = new THREE.Box3().setFromObject(model);
+    model.position.y = -box2.min.y;
+    monster.group.add(model);
+    monster.mesh = model;
+  },
+  undefined,
+  () => {
+    // Fallback
+    const fb = createFallbackMonster();
+    monster.group.add(fb);
+    monster.mesh = fb;
+  }
+);
+
+// Monster red aura
+const monsterAura = new THREE.PointLight(0xff0000, 1.2, 6);
+monsterAura.position.set(0, 1.5, 0);
+monster.group.add(monsterAura);
+
+// ---------- CONTROLS ----------
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyF') {
+    flashlightOn = !flashlightOn;
+  }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// Pointer lock (desktop)
+const canvas = renderer.domElement;
+canvas.addEventListener('click', () => {
+  if (!isTouchDevice() && document.pointerLockElement !== canvas) {
+    canvas.requestPointerLock();
+  }
+});
+document.addEventListener('mousemove', e => {
+  if (document.pointerLockElement === canvas) {
+    player.yaw -= e.movementX * 0.002;
+    player.pitch -= e.movementY * 0.002;
+    player.pitch = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, player.pitch));
+  }
+});
+
+// Touch detection
+function isTouchDevice() {
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+
+const joystickEl = document.getElementById('joystick');
+const stickEl = document.getElementById('stick');
+const lookArea = document.getElementById('lookArea');
+let joyActive = false, joyId = null, joyX = 0, joyY = 0;
+let lookActive = false, lookId = null, lookLastX = 0, lookLastY = 0;
+
+if (isTouchDevice()) {
+  joystickEl.style.display = 'block';
+  lookArea.style.display = 'block';
+
+  joystickEl.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    joyActive = true; joyId = t.identifier;
+    updateJoy(t);
+  });
+  joystickEl.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === joyId) updateJoy(t);
+  });
+  joystickEl.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === joyId) {
+      joyActive = false; joyX = 0; joyY = 0;
+      stickEl.style.transform = 'translate(-50%, -50%)';
+    }
+  });
+
+  function updateJoy(t) {
+    const rect = joystickEl.getBoundingClientRect();
+    const cx = rect.left + rect.width/2;
+    const cy = rect.top + rect.height/2;
+    let dx = t.clientX - cx;
+    let dy = t.clientY - cy;
+    const max = rect.width/2 - 30;
+    const d = Math.hypot(dx, dy);
+    if (d > max) { dx = dx/d * max; dy = dy/d * max; }
+    joyX = dx / max;
+    joyY = dy / max;
+    stickEl.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  }
+
+  lookArea.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    lookActive = true; lookId = t.identifier;
+    lookLastX = t.clientX; lookLastY = t.clientY;
+  });
+  lookArea.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookId) {
+        const dx = t.clientX - lookLastX;
+        const dy = t.clientY - lookLastY;
+        player.yaw -= dx * 0.005;
+        player.pitch -= dy * 0.005;
+        player.pitch = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, player.pitch));
+        lookLastX = t.clientX;
+        lookLastY = t.clientY;
+      }
+    }
+  });
+  lookArea.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === lookId) lookActive = false;
+  });
+}
+
+// ---------- COLLISION ----------
+function collideWalls(pos, radius) {
+  // pos is Vector3 in world; walls are grid cells
+  // Check nearby cells
+  const gx = Math.floor((pos.x + (COLS*CELL)/2) / CELL);
+  const gz = Math.floor((pos.z + (ROWS*CELL)/2) / CELL);
+  for (let dr = -2; dr <= 2; dr++) {
+    for (let dc = -2; dc <= 2; dc++) {
+      const r = gz + dr, c = gx + dc;
+      if (!isWall(r, c)) continue;
+      const center = cellCenter(r, c);
+      // AABB vs circle (top-down)
+      const half = CELL / 2;
+      const dx = pos.x - Math.max(center.x - half, Math.min(pos.x, center.x + half));
+      const dz = pos.z - Math.max(center.z - half, Math.min(pos.z, center.z + half));
+      const dist2 = dx*dx + dz*dz;
+      if (dist2 < radius*radius) {
+        const dist = Math.sqrt(dist2) || 0.0001;
+        const push = (radius - dist);
+        pos.x += (dx / dist) * push;
+        pos.z += (dz / dist) * push;
+      }
+    }
+  }
+}
+
+// ---------- MONSTER AI ----------
+function updateMonster(dt) {
+  // Simple: move toward player, try each axis separately to slide around walls
+  const dir = new THREE.Vector3().subVectors(player.pos, monster.pos);
+  dir.y = 0;
+  const dist = dir.length();
+  if (dist < 0.01) return;
+  dir.normalize();
+
+  // Try X then Z separately
+  const step = monster.speed * dt;
+  const tryMove = (dx, dz) => {
+    const np = monster.pos.clone();
+    np.x += dx; np.z += dz;
+    collideWalls(np, monster.radius);
+    return np;
+  };
+
+  // Primary direction
+  const desired = new THREE.Vector3(dir.x * step, 0, dir.z * step);
+  let np = tryMove(desired.x, desired.z);
+  if (np.distanceTo(monster.pos) < step * 0.1) {
+    // Stuck, try axis separately
+    np = tryMove(desired.x, 0);
+    if (np.distanceTo(monster.pos) < step * 0.1) {
+      np = tryMove(0, desired.z);
+    }
+  }
+  monster.pos.copy(np);
+  monster.pos.y = 0;
+  monster.group.position.copy(monster.pos);
+
+  // Face player
+  const angle = Math.atan2(player.pos.x - monster.pos.x, player.pos.z - monster.pos.z);
+  monster.group.rotation.y = angle;
+
+  // Bobbing animation
+  monster.bobT += dt * 4;
+  if (monster.mesh) {
+    monster.mesh.position.y = Math.abs(Math.sin(monster.bobT)) * 0.1;
+  }
+
+  // Damage player if close
+  if (dist < 1.2) {
+    player.health -= 20 * dt;
+    if (player.health < 0) player.health = 0;
+    updateHealthUI();
+    // Screen shake via camera
+    camera.position.x = player.pos.x + (Math.random() - 0.5) * 0.05;
+    camera.position.z = player.pos.z + (Math.random() - 0.5) * 0.05;
+  }
+}
+
+// ---------- UI ----------
+const healthFill = document.getElementById('healthFill');
+const messageEl = document.getElementById('message');
+function updateHealthUI() {
+  healthFill.style.width = player.health + '%';
+  if (player.health < 30) healthFill.style.background = 'linear-gradient(90deg, #800, #c00)';
+  else if (player.health < 60) healthFill.style.background = 'linear-gradient(90deg, #c40, #f80)';
+  else healthFill.style.background = 'linear-gradient(90deg, #f33, #ff6)';
+}
+
+let gameOver = false;
+function showMessage(text) {
+  messageEl.textContent = text;
+  messageEl.style.display = 'block';
+}
+
+// ---------- START ----------
+let gameStarted = false;
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('startScreen').style.display = 'none';
+  gameStarted = true;
+  if (!isTouchDevice()) canvas.requestPointerLock();
+});
+
+// ---------- MAIN LOOP ----------
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+
+  if (gameStarted && !gameOver) {
+    // Input
+    let mx = 0, mz = 0;
+    if (keys['KeyW']) mz -= 1;
+    if (keys['KeyS']) mz += 1;
+    if (keys['KeyA']) mx -= 1;
+    if (keys['KeyD']) mx += 1;
+    if (joyActive) { mx += joyX; mz += joyY; }
+    const len = Math.hypot(mx, mz);
+    if (len > 1) { mx /= len; mz /= len; }
+
+    // Movement relative to yaw
+    const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
+    const fx = -sin * mz - cos * mx; // forward is -Z in camera space
+    const fz = -cos * mz + sin * mx;
+    // Actually simpler:
+    const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+    const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+    const move = new THREE.Vector3();
+    move.addScaledVector(forward, -mz);
+    move.addScaledVector(right, mx);
+    if (move.lengthSq() > 0) move.normalize();
+
+    const step = player.speed * dt;
+    player.pos.x += move.x * step;
+    player.pos.z += move.z * step;
+    collideWalls(player.pos, player.radius);
+    player.pos.y = 1.6;
+
+    // Camera
+    camera.position.copy(player.pos);
+    // Head bob
+    if (move.lengthSq() > 0.01) {
+      camera.position.y += Math.sin(performance.now() * 0.008) * 0.05;
+    }
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = player.yaw;
+    camera.rotation.x = player.pitch;
+
+    // Flashlight
+    if (flashlightOn) {
+      flashlight.intensity = 4;
+      flashlight.position.copy(camera.position);
+      const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
+      flashlight.target.position.copy(camera.position).add(dir.multiplyScalar(10));
+    } else {
+      flashlight.intensity = 0;
+    }
+
+    // Monster
+    updateMonster(dt);
+
+    // Exit check
+    if (player.pos.distanceTo(new THREE.Vector3(exitPos.x, 1.6, exitPos.z)) < 1.2) {
+      gameOver = true;
+      showMessage('🎉 ТЫ СБЕЖАЛ! 🎉');
+    }
+
+    // Death
+    if (player.health <= 0) {
+      gameOver = true;
+      showMessage('💀 МОНСТР ПОЙМАЛ ТЕБЯ 💀');
+    }
+  }
+
+  // Exit marker pulse
+  exitMarker.material.color.setHSL(0.38, 1, 0.5 + Math.sin(performance.now() * 0.003) * 0.2);
+  exitLight.intensity = 1.5 + Math.sin(performance.now() * 0.003) * 0.5;
+
+  renderer.render(scene, camera);
+}
+animate();
+
+// ---------- RESIZE ----------
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

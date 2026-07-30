@@ -1,0 +1,850 @@
+```html
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Комната с мотоциклом Plusar</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fff}
+#canvas3d{position:fixed;top:0;left:0;width:100%;height:100%;display:block}
+#loading{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1000;transition:opacity .8s}
+#loading .spinner{width:60px;height:60px;border:3px solid #333;border-top-color:#ff6b9d;border-radius:50%;animation:spin 1s linear infinite}
+#loading p{margin-top:20px;color:#aaa;font-size:14px;letter-spacing:2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading.hidden{opacity:0;pointer-events:none}
+
+#hud{position:fixed;top:10px;left:10px;z-index:10;font-size:11px;color:#fff;text-shadow:0 0 4px #000;pointer-events:none}
+#hud .title{font-size:14px;font-weight:700;color:#ff6b9d;letter-spacing:1px}
+#hud .info{margin-top:4px;opacity:.7}
+
+#joystick{position:fixed;bottom:40px;left:40px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);z-index:20;touch-action:none}
+#joystick .knob{position:absolute;top:50%;left:50%;width:55px;height:55px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#ff6b9d,#c44569);transform:translate(-50%,-50%);box-shadow:0 0 20px rgba(255,107,157,.5)}
+
+#lookZone{position:fixed;top:0;right:0;width:50%;height:70%;z-index:15}
+
+#crosshair{position:fixed;top:50%;left:50%;width:20px;height:20px;transform:translate(-50%,-50%);z-index:18;pointer-events:none}
+#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,.9);box-shadow:0 0 4px rgba(0,0,0,.8)}
+#crosshair::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
+#crosshair::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%)}
+
+#fps{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:10;font-size:10px;color:#0f0;opacity:.6;pointer-events:none;font-family:monospace}
+
+#gunBtn{position:fixed;bottom:40px;right:40px;z-index:20;background:rgba(20,20,30,.8);backdrop-filter:blur(8px);border:2px solid rgba(255,107,157,.5);color:#fff;padding:12px 16px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer}
+#reloadBtn{position:fixed;bottom:100px;right:40px;z-index:20;background:rgba(20,20,30,.8);backdrop-filter:blur(8px);border:2px solid rgba(255,200,100,.5);color:#fff;padding:9px 14px;border-radius:18px;font-size:11px;font-weight:700;cursor:pointer;display:none}
+#ammo{position:fixed;bottom:95px;right:100px;z-index:20;font-size:13px;font-weight:700;color:#ffcc66;text-shadow:0 0 6px rgba(0,0,0,.9);pointer-events:none;display:none}
+
+#motoBtn{position:fixed;top:60px;right:10px;z-index:20;background:rgba(20,20,30,.85);backdrop-filter:blur(8px);border:2px solid rgba(100,200,255,.6);color:#fff;padding:12px 18px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;display:none}
+
+#kickHint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;font-size:22px;font-weight:800;color:#ffaa44;text-shadow:0 0 20px rgba(255,170,68,.8);pointer-events:none;opacity:0;transition:opacity .3s;letter-spacing:2px;text-align:center}
+#kickHint.show{opacity:1}
+#kickHint .arrow{font-size:40px;display:block;animation:bounce 1s infinite}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(10px)}}
+
+#rpm{position:fixed;bottom:40px;right:40px;z-index:20;background:rgba(0,0,0,.8);border:2px solid #ff6600;border-radius:50%;width:120px;height:120px;display:none;flex-direction:column;align-items:center;justify-content:center;font-family:monospace}
+#rpm .value{font-size:28px;font-weight:700;color:#ff6600}
+#rpm .label{font-size:9px;color:#aaa;letter-spacing:1px}
+
+#flash{position:fixed;inset:0;background:#fff;opacity:0;z-index:16;pointer-events:none;transition:opacity .05s}
+#message{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;font-size:20px;font-weight:800;color:#ffcc66;text-shadow:0 0 20px rgba(255,200,100,.8);pointer-events:none;opacity:0;transition:opacity .3s;letter-spacing:2px;text-align:center}
+#message.show{opacity:1}
+
+#motoViewer{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:400px;height:300px;z-index:30;display:none;border:3px solid rgba(255,107,157,.6);border-radius:15px;overflow:hidden;background:#000}
+#motoViewer iframe{width:100%;height:100%;border:none}
+#closeViewer{position:absolute;top:10px;right:10px;z-index:31;background:rgba(255,0,0,.8);color:#fff;border:none;padding:8px 12px;border-radius:15px;font-size:12px;font-weight:700;cursor:pointer}
+
+@media(max-width:600px){
+  #gunBtn{padding:10px 14px;font-size:11px;bottom:30px;right:20px}
+  #reloadBtn{bottom:85px;right:20px;padding:8px 12px}
+  #ammo{bottom:75px;right:80px;font-size:12px}
+  #joystick{width:110px;height:110px;bottom:25px;left:20px}
+  #joystick .knob{width:45px;height:45px}
+  #motoBtn{top:50px;right:8px;padding:10px 14px;font-size:11px}
+  #rpm{width:100px;height:100px;bottom:30px;right:20px}
+  #rpm .value{font-size:22px}
+  #motoViewer{width:90%;height:250px}
+}
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p>ЗАГРУЗКА...</p></div>
+
+<div id="canvas3d"></div>
+
+<div id="hud">
+  <div class="title"> PLUSAR </div>
+  <div class="info">Движение: джойстик • Обзор: свайп справа</div>
+</div>
+
+<div id="crosshair"></div>
+<div id="flash"></div>
+<div id="message"></div>
+<div id="fps"></div>
+<div id="kickHint"><span class="arrow">⬇</span>СВАЙП ВНИЗ<br>ДЛЯ ЗАПУСКА</div>
+
+<div id="joystick"><div class="knob"></div></div>
+<div id="lookZone"></div>
+
+<button id="gunBtn"> РУЖЬЁ</button>
+<button id="reloadBtn">↻ ПЕРЕЗАРЯДКА</button>
+<div id="ammo"></div>
+
+<button id="motoBtn">🏍 СЕСТЬ</button>
+<div id="rpm">
+  <div class="label">ОБ/МИН</div>
+  <div class="value">0</div>
+</div>
+
+<div id="motoViewer">
+  <button id="closeViewer"></button>
+  <iframe title="Plusar" frameborder="0" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share src="https://sketchfab.com/models/8a76e4c77c46435ca5371ee10ed2956e/embed?autostart=1&ui_theme=dark&ui_controls=1&ui_infos=1&ui_watermark=0&ui_hint=0"></iframe>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const TEX = {
+  floor: 'https://image.qwenlm.ai/public_source/3024f2ed-df3c-4de6-a4d5-2581bba5e716/1e9882170-e5f9-4fdb-8765-2dcc7e095480.png',
+  wall: 'https://image.qwenlm.ai/public_source/3024f2ed-df3c-4de6-a4d5-2581bba5e716/1f04b4187-bc1f-4c09-ab3e-6879e0a4359c.png',
+  ceil: 'https://image.qwenlm.ai/public_source/3024f2ed-df3c-4de6-a4d5-2581bba5e716/164a2dd2e-88a0-47db-855c-982eacff615e.png',
+  sky: 'https://image.qwenlm.ai/public_source/3024f2ed-df3c-4de6-a4d5-2581bba5e716/18ee41ab3-8ee4-4d65-ad11-ffc386742a8c.png',
+  painting1: 'https://image.qwenlm.ai/public_source/3024f2ed-df3c-4de6-a4d5-2581bba5e716/1242f4ada-0313-4bc4-a3c7-3344bfd20406.png',
+  painting2: 'https://image.qwenlm.ai/public_source/3024f2ed-df3c-4de6-a4d5-2581bba5e716/1dd99b73f-9d78-46dd-a51d-d1b3addc56bd.png',
+  painting3: 'https://image.qwenlm.ai/public_source/3024f2ed-df3c-4de6-a4d5-2581bba5e716/10fb4f088-9d91-4656-abdb-f8875b4ee5c1.png'
+};
+
+const loader = new THREE.TextureLoader();
+const loadTex = url => {
+  const t = loader.load(url);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.minFilter = THREE.LinearFilter;
+  return t;
+};
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050510);
+scene.fog = new THREE.FogExp2(0x050510, 0.015);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 80);
+camera.position.set(0, 1.6, 3);
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.BasicShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.3;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.getElementById('canvas3d').appendChild(renderer.domElement);
+
+const ROOM_W = 10, ROOM_H = 3.5, ROOM_D = 10;
+
+const floorTex = loadTex(TEX.floor); floorTex.repeat.set(3,3);
+const wallTex = loadTex(TEX.wall); wallTex.repeat.set(2,1);
+const ceilTex = loadTex(TEX.ceil); ceilTex.repeat.set(2,2);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_D), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.6, metalness: 0.1 }));
+floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_D), new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 0.9 }));
+ceiling.rotation.x = Math.PI/2; ceiling.position.y = ROOM_H; scene.add(ceiling);
+
+const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.8 });
+const walls = [];
+function makeWall(w,h,px,py,pz,ry=0){
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h), wallMat.clone());
+  m.position.set(px,py,pz); m.rotation.y = ry; m.receiveShadow = true;
+  scene.add(m); walls.push(m); return m;
+}
+makeWall(ROOM_W, ROOM_H, 0, ROOM_H/2, -ROOM_D/2);
+makeWall(ROOM_W, ROOM_H, 0, ROOM_H/2, ROOM_D/2, Math.PI);
+makeWall(ROOM_D, ROOM_H, -ROOM_W/2, ROOM_H/2, 0, Math.PI/2);
+makeWall(ROOM_D, ROOM_H, ROOM_W/2, ROOM_H/2, 0, -Math.PI/2);
+
+const skyTex = loadTex(TEX.sky);
+const skyPlane = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), new THREE.MeshBasicMaterial({ map: skyTex }));
+skyPlane.position.set(0, ROOM_H/2, -ROOM_D/2 - 0.1); scene.add(skyPlane);
+
+const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a1810, roughness: 0.7 });
+function frame(w,h,d,px,py,pz){ const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), frameMat); m.position.set(px,py,pz); scene.add(m); }
+frame(0.2, 3.5, 0.3, -2.5, ROOM_H/2, -ROOM_D/2 + 0.15);
+frame(0.2, 3.5, 0.3, 2.5, ROOM_H/2, -ROOM_D/2 + 0.15);
+frame(5.2, 0.2, 0.3, 0, ROOM_H/2 + 1.65, -ROOM_D/2 + 0.15);
+frame(5.2, 0.2, 0.3, 0, ROOM_H/2 - 1.65, -ROOM_D/2 + 0.15);
+frame(0.15, 3.5, 0.3, 0, ROOM_H/2, -ROOM_D/2 + 0.15);
+const sill = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.15, 0.5), frameMat);
+sill.position.set(0, ROOM_H/2 - 1.7, -ROOM_D/2 + 0.3); scene.add(sill);
+
+const paintables = [...walls];
+function makePainting(texUrl, px, py, pz, ry, w=1.2, h=1.5){
+  const group = new THREE.Group();
+  const tex = loadTex(texUrl);
+  const painting = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.4 }));
+  const frameMesh = new THREE.Mesh(new THREE.BoxGeometry(w + 0.15, h + 0.15, 0.1), new THREE.MeshStandardMaterial({ color: 0xb8860b, roughness: 0.3, metalness: 0.6 }));
+  frameMesh.position.z = -0.05; group.add(frameMesh); group.add(painting);
+  painting.position.z = 0.01; group.position.set(px, py, pz); group.rotation.y = ry;
+  scene.add(group); paintables.push(painting, frameMesh);
+}
+makePainting(TEX.painting1, -3.5, 1.8, -ROOM_D/2 + 0.1, 0, 1.4, 1.6);
+makePainting(TEX.painting2, 3.5, 1.8, -ROOM_D/2 + 0.1, 0, 1.4, 1.6);
+makePainting(TEX.painting3, -ROOM_W/2 + 0.1, 1.8, 0, Math.PI/2, 1.3, 1.7);
+
+const tableMat = new THREE.MeshStandardMaterial({ color: 0x3a2418, roughness: 0.5 });
+const tableTop = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 1.2), tableMat);
+tableTop.position.set(2, 0.75, -2); tableTop.castShadow = true; tableTop.receiveShadow = true; scene.add(tableTop); paintables.push(tableTop);
+for(let i=0;i<4;i++){ const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.75,6), tableMat); leg.position.set(2 + (i%2?-0.9:0.9), 0.375, -2 + (i<2?-0.5:0.5)); scene.add(leg); paintables.push(leg); }
+const book = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.4), new THREE.MeshStandardMaterial({ color: 0x8b0000, roughness: 0.7 }));
+book.position.set(2.1, 0.825, -2); book.rotation.y = 0.3; scene.add(book); paintables.push(book);
+
+const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.25, 8), new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.6 }));
+candle.position.set(1.8, 0.925, -1.9); scene.add(candle); paintables.push(candle);
+const flameMesh = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 6), new THREE.MeshBasicMaterial({ color: 0xffaa33 }));
+flameMesh.position.set(1.8, 1.09, -1.9); scene.add(flameMesh);
+const candleLight = new THREE.PointLight(0xffaa33, 3, 6);
+candleLight.position.set(1.8, 1.1, -1.9); scene.add(candleLight);
+
+const chairMat = new THREE.MeshStandardMaterial({ color: 0x4a1818, roughness: 0.8 });
+const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.1, 0.8), chairMat);
+chairSeat.position.set(-2, 0.45, 1); chairSeat.castShadow = true; scene.add(chairSeat); paintables.push(chairSeat);
+const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 0.1), chairMat);
+chairBack.position.set(-2, 0.9, 1.35); scene.add(chairBack); paintables.push(chairBack);
+for(let i=0;i<4;i++){ const l = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.45,6), chairMat); l.position.set(-2 + (i%2?-0.35:0.35), 0.225, 1 + (i<2?-0.35:0.35)); scene.add(l); paintables.push(l); }
+
+const carpet = new THREE.Mesh(new THREE.PlaneGeometry(3, 2), new THREE.MeshStandardMaterial({ color: 0x6b1a1a, roughness: 0.95 }));
+carpet.rotation.x = -Math.PI/2; carpet.position.set(0, 0.01, 0); carpet.receiveShadow = true; scene.add(carpet); paintables.push(carpet);
+
+const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.8, 6), new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.3 }));
+lampPole.position.set(3.5, 0.9, 2); scene.add(lampPole); paintables.push(lampPole);
+const lampShade = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.4, 12, 1, true), new THREE.MeshStandardMaterial({ color: 0xf5deb3, roughness: 0.7, side: THREE.DoubleSide, emissive: 0x553322, emissiveIntensity: 0.5 }));
+lampShade.position.set(3.5, 1.9, 2); scene.add(lampShade);
+const lampLight = new THREE.PointLight(0xffcc88, 2.5, 7);
+lampLight.position.set(3.5, 1.8, 2); scene.add(lampLight);
+
+const chandelier = new THREE.Group();
+chandelier.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.2 })));
+for(let i=0;i<6;i++){
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.8, 4), new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9 }));
+  arm.rotation.z = Math.PI/2; arm.rotation.y = (i/6)*Math.PI*2;
+  arm.position.set(Math.cos((i/6)*Math.PI*2)*0.4, 0, Math.sin((i/6)*Math.PI*2)*0.4);
+  chandelier.add(arm);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffeecc }));
+  bulb.position.set(Math.cos((i/6)*Math.PI*2)*0.8, -0.05, Math.sin((i/6)*Math.PI*2)*0.8);
+  chandelier.add(bulb);
+}
+chandelier.position.set(0, ROOM_H - 0.2, 0); scene.add(chandelier);
+const chandelierLight = new THREE.PointLight(0xffddaa, 3.5, 14);
+chandelierLight.position.set(0, ROOM_H - 0.4, 0); scene.add(chandelierLight);
+const windowLight = new THREE.PointLight(0x8899cc, 2, 8);
+windowLight.position.set(0, ROOM_H/2, -ROOM_D/2 + 1); scene.add(windowLight);
+
+const fireplaceGroup = new THREE.Group();
+fireplaceGroup.position.set(0, 0, -ROOM_D/2 + 0.6); scene.add(fireplaceGroup);
+const stoneMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.95 });
+const stoneDarkMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.95 });
+const fpBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.3, 1.0), stoneMat);
+fpBase.position.y = 0.15; fpBase.castShadow = true; fpBase.receiveShadow = true; fireplaceGroup.add(fpBase); paintables.push(fpBase);
+const pillarGeo = new THREE.BoxGeometry(0.4, 1.6, 0.9);
+const leftPillar = new THREE.Mesh(pillarGeo, stoneMat); leftPillar.position.set(-0.9, 1.1, 0); leftPillar.castShadow = true; fireplaceGroup.add(leftPillar); paintables.push(leftPillar);
+const rightPillar = new THREE.Mesh(pillarGeo, stoneMat); rightPillar.position.set(0.9, 1.1, 0); rightPillar.castShadow = true; fireplaceGroup.add(rightPillar); paintables.push(rightPillar);
+const mantle = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.15, 1.1), stoneDarkMat);
+mantle.position.y = 1.95; mantle.castShadow = true; fireplaceGroup.add(mantle); paintables.push(mantle);
+const hearth = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.1, 0.8), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 1.0 }));
+hearth.position.set(0, 0.35, -0.1); fireplaceGroup.add(hearth);
+const logMat = new THREE.MeshStandardMaterial({ color: 0x3a2418, roughness: 0.9 });
+for(let i=0;i<3;i++){ const log = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.8, 8), logMat); log.rotation.z = Math.PI/2; log.rotation.y = (i-1)*0.3; log.position.set((i-1)*0.15, 0.48, -0.1 + (i-1)*0.05); log.castShadow = true; fireplaceGroup.add(log); paintables.push(log); }
+
+const fireParticles = [];
+const fireGroup = new THREE.Group();
+fireGroup.position.set(0, 0.5, -0.1); fireplaceGroup.add(fireGroup);
+const flameGeo = new THREE.PlaneGeometry(0.15, 0.3);
+const flameMat1 = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+const flameMat2 = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+const flameMat3 = new THREE.MeshBasicMaterial({ color: 0xffff44, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
+for(let i=0;i<25;i++){
+  const mat = [flameMat1, flameMat2, flameMat3][i%3];
+  const mesh = new THREE.Mesh(flameGeo, mat.clone());
+  mesh.position.set((Math.random()-0.5)*0.6, Math.random()*0.3, (Math.random()-0.5)*0.3);
+  mesh.rotation.y = Math.random()*Math.PI;
+  mesh.userData = { baseY: mesh.position.y, baseX: mesh.position.x, baseZ: mesh.position.z, speed: 0.5 + Math.random()*1.5, phase: Math.random()*Math.PI*2, size: 0.8 + Math.random()*0.4 };
+  fireGroup.add(mesh); fireParticles.push(mesh);
+}
+const emberGeo = new THREE.SphereGeometry(0.03, 6, 4);
+const emberMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+for(let i=0;i<8;i++){ const ember = new THREE.Mesh(emberGeo, emberMat.clone()); ember.position.set((Math.random()-0.5)*0.8, 0.42 + Math.random()*0.1, (Math.random()-0.5)*0.4); fireGroup.add(ember); }
+const fireLight = new THREE.PointLight(0xff6622, 4, 8);
+fireLight.position.set(0, 1.0, 0.2); fireLight.castShadow = true; fireLight.shadow.mapSize.set(256,256); fireplaceGroup.add(fireLight);
+const fireLight2 = new THREE.PointLight(0xff4400, 2, 5);
+fireLight2.position.set(0, 0.8, 0); fireplaceGroup.add(fireLight2);
+
+// Позиция мотоцикла Plusar
+const motoPosition = new THREE.Vector3(3, 0, 0);
+
+// Освещение
+scene.add(new THREE.HemisphereLight(0xffeedd, 0x334455, 0.6));
+scene.add(new THREE.AmbientLight(0x445566, 0.5));
+const moonLight = new THREE.DirectionalLight(0x99aadd, 1.2);
+moonLight.position.set(0, ROOM_H, -ROOM_D/2 + 2);
+moonLight.target.position.set(0, 0, 0);
+moonLight.castShadow = true;
+moonLight.shadow.mapSize.set(512,512);
+moonLight.shadow.camera.near = 0.5;
+moonLight.shadow.camera.far = 15;
+moonLight.shadow.camera.left = -6;
+moonLight.shadow.camera.right = 6;
+moonLight.shadow.camera.top = 6;
+moonLight.shadow.camera.bottom = -6;
+scene.add(moonLight);
+scene.add(moonLight.target);
+
+const motoSpotLight = new THREE.SpotLight(0xffffff, 5, 8, Math.PI/6, 0.5);
+motoSpotLight.position.set(3, ROOM_H - 0.5, 0);
+motoSpotLight.target.position.copy(motoPosition);
+scene.add(motoSpotLight);
+scene.add(motoSpotLight.target);
+
+// Ружьё
+const gunGroup = new THREE.Group();
+gunGroup.visible = false;
+camera.add(gunGroup);
+scene.add(camera);
+
+const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3018, roughness: 0.7 });
+const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.3, metalness: 0.9 });
+const metalDarkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.85 });
+
+const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.5), woodMat);
+stock.position.set(0, -0.08, 0.15); gunGroup.add(stock);
+const forend = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.35), woodMat);
+forend.position.set(0, -0.02, -0.25); gunGroup.add(forend);
+const barrelGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.7, 12);
+const barrel1 = new THREE.Mesh(barrelGeo, metalMat);
+barrel1.rotation.x = Math.PI/2; barrel1.position.set(-0.025, 0.02, -0.45); gunGroup.add(barrel1);
+const barrel2 = new THREE.Mesh(barrelGeo, metalMat);
+barrel2.rotation.x = Math.PI/2; barrel2.position.set(0.025, 0.02, -0.45); gunGroup.add(barrel2);
+const muzzleGeo = new THREE.CircleGeometry(0.022, 12);
+const muzzleMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+const muzzle1 = new THREE.Mesh(muzzleGeo, muzzleMat);
+muzzle1.position.set(-0.025, 0.02, -0.8); muzzle1.rotation.y = Math.PI; gunGroup.add(muzzle1);
+const muzzle2 = new THREE.Mesh(muzzleGeo, muzzleMat);
+muzzle2.position.set(0.025, 0.02, -0.8); muzzle2.rotation.y = Math.PI; gunGroup.add(muzzle2);
+const rib = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.01, 0.65), metalDarkMat);
+rib.position.set(0, 0.045, -0.45); gunGroup.add(rib);
+const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.025, 0.015), metalDarkMat);
+frontSight.position.set(0, 0.06, -0.75); gunGroup.add(frontSight);
+const rearSight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.02, 0.02), metalDarkMat);
+rearSight.position.set(0, 0.055, -0.15); gunGroup.add(rearSight);
+const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.008, 6, 12, Math.PI), metalDarkMat);
+triggerGuard.position.set(0, -0.12, 0.05); triggerGuard.rotation.x = Math.PI/2; gunGroup.add(triggerGuard);
+const trigger1 = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.04, 0.008), metalDarkMat);
+trigger1.position.set(-0.015, -0.12, 0.05); gunGroup.add(trigger1);
+const trigger2 = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.04, 0.008), metalDarkMat);
+trigger2.position.set(0.015, -0.12, 0.05); gunGroup.add(trigger2);
+const buttplate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.13, 0.02), metalDarkMat);
+buttplate.position.set(0, -0.08, 0.4); gunGroup.add(buttplate);
+gunGroup.position.set(0.25, -0.25, -0.5);
+gunGroup.rotation.y = -0.05;
+
+const muzzleFlash = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffff88, transparent: true, opacity: 0 }));
+muzzleFlash.position.set(0, 0.02, -0.82); gunGroup.add(muzzleFlash);
+const shotLight = new THREE.PointLight(0xffaa44, 0, 6);
+shotLight.position.set(0.25, -0.23, -1.3); camera.add(shotLight);
+
+const bulletHoles = [];
+const maxHoles = 100;
+const holeGeo = new THREE.CircleGeometry(0.025, 12);
+const holeMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.95 });
+const scorchGeo = new THREE.CircleGeometry(0.05, 12);
+const scorchMat = new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.6 });
+
+function createBulletHole(point, normal){
+  if(bulletHoles.length >= maxHoles){ const old = bulletHoles.shift(); scene.remove(old.hole); scene.remove(old.scorch); }
+  const hole = new THREE.Mesh(holeGeo, holeMat.clone());
+  hole.position.copy(point).addScaledVector(normal, 0.005);
+  hole.lookAt(point.clone().add(normal)); scene.add(hole);
+  const scorch = new THREE.Mesh(scorchGeo, scorchMat.clone());
+  scorch.position.copy(point).addScaledVector(normal, 0.004);
+  scorch.lookAt(point.clone().add(normal)); scene.add(scorch);
+  bulletHoles.push({ hole, scorch });
+}
+
+const state = {
+  yaw: 0, pitch: 0,
+  moveX: 0, moveZ: 0,
+  speed: 0.08,
+  hasGun: false,
+  ammo: 2, maxAmmo: 2,
+  reloading: false,
+  recoil: 0,
+  onMoto: false,
+  motoRunning: false,
+  motoRPM: 0,
+  viewerOpen: false
+};
+
+const joystick = document.getElementById('joystick');
+const knob = joystick.querySelector('.knob');
+let joyId = null, joyCenter = {x:0,y:0};
+
+joystick.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  joyId = t.identifier;
+  const r = joystick.getBoundingClientRect();
+  joyCenter = { x: r.left + r.width/2, y: r.top + r.height/2 };
+  updateJoy(t.clientX, t.clientY);
+}, {passive:false});
+
+joystick.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier === joyId){ updateJoy(t.clientX, t.clientY); break; }
+  }
+}, {passive:false});
+
+const endJoy = e => {
+  for(const t of e.changedTouches){
+    if(t.identifier === joyId){
+      joyId = null;
+      knob.style.transform = 'translate(-50%,-50%)';
+      state.moveX = 0; state.moveZ = 0;
+    }
+  }
+};
+joystick.addEventListener('touchend', endJoy);
+joystick.addEventListener('touchcancel', endJoy);
+
+function updateJoy(x, y){
+  const dx = x - joyCenter.x, dy = y - joyCenter.y;
+  const max = 45;
+  const dist = Math.min(Math.sqrt(dx*dx+dy*dy), max);
+  const ang = Math.atan2(dy, dx);
+  const kx = Math.cos(ang)*dist, ky = Math.sin(ang)*dist;
+  knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+  state.moveX = kx/max;
+  state.moveZ = ky/max;
+}
+
+const lookZone = document.getElementById('lookZone');
+let lookId = null, lookLast = {x:0,y:0};
+let kickSwipeStart = null;
+
+lookZone.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  lookId = t.identifier;
+  lookLast = {x:t.clientX, y:t.clientY};
+  if(state.onMoto && !state.motoRunning){
+    kickSwipeStart = { x: t.clientX, y: t.clientY, time: Date.now() };
+  }
+}, {passive:false});
+
+lookZone.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(t.identifier === lookId){
+      const dx = t.clientX - lookLast.x;
+      const dy = t.clientY - lookLast.y;
+      state.yaw -= dx*0.004;
+      state.pitch -= dy*0.004;
+      state.pitch = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, state.pitch));
+      lookLast = {x:t.clientX, y:t.clientY};
+      
+      if(kickSwipeStart && state.onMoto && !state.motoRunning){
+        const swipeDist = t.clientY - kickSwipeStart.y;
+        if(swipeDist > 80){
+          startEngine();
+          kickSwipeStart = null;
+        }
+      }
+    }
+  }
+}, {passive:false});
+
+const endLook = e => {
+  for(const t of e.changedTouches){
+    if(t.identifier === lookId){ lookId = null; kickSwipeStart = null; }
+  }
+};
+lookZone.addEventListener('touchend', endLook);
+lookZone.addEventListener('touchcancel', endLook);
+
+let mouseDown = false, mouseLast = {x:0,y:0};
+renderer.domElement.addEventListener('mousedown', e => {
+  if(!state.hasGun) return;
+  mouseDown = true; mouseLast = {x:e.clientX,y:e.clientY};
+});
+window.addEventListener('mouseup', () => mouseDown = false);
+window.addEventListener('mousemove', e => {
+  if(!mouseDown) return;
+  const dx = e.clientX - mouseLast.x, dy = e.clientY - mouseLast.y;
+  state.yaw -= dx*0.003;
+  state.pitch -= dy*0.003;
+  state.pitch = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, state.pitch));
+  mouseLast = {x:e.clientX, y:e.clientY};
+});
+
+renderer.domElement.addEventListener('click', () => {
+  if(state.hasGun && !state.reloading) shoot();
+});
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if(e.key === ' ' && state.hasGun && !state.reloading) shoot();
+  if(e.key.toLowerCase() === 'r' && state.hasGun) reload();
+  if(e.key.toLowerCase() === 'e') toggleMoto();
+  if(e.key.toLowerCase() === 'k' && state.onMoto && !state.motoRunning) startEngine();
+  if(e.key.toLowerCase() === 'f' && state.onMoto && state.motoRunning) stopEngine();
+  if(e.key.toLowerCase() === 'v') toggleViewer();
+});
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+let audioCtx = null;
+let engineOsc = null, engineGain = null;
+
+function getAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function startEngineSound(){
+  try {
+    const ctx = getAudio();
+    engineOsc = ctx.createOscillator();
+    engineOsc.type = 'sawtooth';
+    engineOsc.frequency.value = 30;
+    engineGain = ctx.createGain();
+    engineGain.gain.value = 0.1;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+    engineOsc.connect(filter);
+    filter.connect(engineGain);
+    engineGain.connect(ctx.destination);
+    engineOsc.start();
+  } catch(e){}
+}
+
+function updateEngineSound(rpm){
+  if(engineOsc && engineGain){
+    engineOsc.frequency.value = 20 + rpm * 0.05;
+    engineGain.gain.value = 0.05 + rpm * 0.001;
+  }
+}
+
+function stopEngineSound(){
+  if(engineOsc){
+    engineOsc.stop();
+    engineOsc = null;
+    engineGain = null;
+  }
+}
+
+function playShotSound(){
+  try {
+    const ctx = getAudio();
+    const now = ctx.currentTime;
+    const bufferSize = ctx.sampleRate * 0.3;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++){
+      const t = i/bufferSize;
+      data[i] = (Math.random()*2-1) * Math.exp(-t*15) * 0.8;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.value = 800;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.6, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noise.start(now);
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(80, now);
+    osc.frequency.exponentialRampToValueAtTime(30, now + 0.2);
+    const oscGain = ctx.createGain();
+    oscGain.gain.setValueAtTime(0.5, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+    osc.connect(oscGain);
+    oscGain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  } catch(e){}
+}
+
+function playReloadSound(){
+  try {
+    const ctx = getAudio();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(400, now + 0.15);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.25);
+  } catch(e){}
+}
+
+function playEmptySound(){
+  try {
+    const ctx = getAudio();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = 150;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  } catch(e){}
+}
+
+function startEngine(){
+  if(state.motoRunning) return;
+  state.motoRunning = true;
+  state.motoRPM = 800;
+  startEngineSound();
+  showMessage('ДВИГАТЕЛЬ ЗАВЕДЁН!');
+  document.getElementById('rpm').style.display = 'flex';
+}
+
+function stopEngine(){
+  state.motoRunning = false;
+  state.motoRPM = 0;
+  stopEngineSound();
+  showMessage('ДВИГАТЕЛЬ ЗАГЛУШЕН');
+  document.getElementById('rpm').style.display = 'none';
+}
+
+function toggleMoto(){
+  const dist = camera.position.distanceTo(motoPosition);
+  if(state.onMoto){
+    state.onMoto = false;
+    if(state.motoRunning) stopEngine();
+    camera.position.set(motoPosition.x + 2, 1.6, motoPosition.z + 2);
+    document.getElementById('motoBtn').textContent = '🏍 СЕСТЬ';
+    document.getElementById('kickHint').classList.remove('show');
+    showMessage('ВЫ СЛЕЗЛИ С МОТОЦИКЛА');
+  } else {
+    if(dist > 3){
+      showMessage('ПОДОЙДИТЕ БЛИЖЕ К МОТОЦИКЛУ');
+      return;
+    }
+    state.onMoto = true;
+    document.getElementById('motoBtn').textContent = '🚶 СЛЕЗТЬ';
+    document.getElementById('kickHint').classList.add('show');
+    showMessage('ВЫ СЕЛИ НА PLUSAR\nK - ЗАВЕСТИ • F - ЗАГЛУШИТЬ • V - ОСМОТРЕТЬ');
+    setTimeout(() => document.getElementById('kickHint').classList.remove('show'), 3000);
+  }
+}
+
+function toggleViewer(){
+  state.viewerOpen = !state.viewerOpen;
+  document.getElementById('motoViewer').style.display = state.viewerOpen ? 'block' : 'none';
+}
+
+const raycaster = new THREE.Raycaster();
+const center = new THREE.Vector2(0, 0);
+
+function shoot(){
+  if(state.ammo <= 0){ playEmptySound(); showMessage('НЕТ ПАТРОНОВ!'); return; }
+  if(state.reloading) return;
+  state.ammo--;
+  state.recoil = 1.0;
+  updateAmmo();
+  playShotSound();
+  muzzleFlash.material.opacity = 1.0;
+  shotLight.intensity = 8;
+  document.getElementById('flash').style.opacity = '0.3';
+  setTimeout(() => { document.getElementById('flash').style.opacity = '0'; }, 50);
+  raycaster.setFromCamera(center, camera);
+  const intersects = raycaster.intersectObjects(paintables, false);
+  if(intersects.length > 0){
+    const hit = intersects[0];
+    createBulletHole(hit.point, hit.face.normal.clone().transformDirection(hit.object.matrixWorld));
+  }
+  if(state.ammo <= 0) setTimeout(() => reload(), 800);
+}
+
+function reload(){
+  if(state.reloading || state.ammo === state.maxAmmo) return;
+  state.reloading = true;
+  playReloadSound();
+  showMessage('ПЕРЕЗАРЯДКА...');
+  document.getElementById('reloadBtn').disabled = true;
+  setTimeout(() => {
+    state.ammo = state.maxAmmo;
+    state.reloading = false;
+    updateAmmo();
+    showMessage('ГОТОВ К СТРЕЛЬБЕ');
+    document.getElementById('reloadBtn').disabled = false;
+  }, 1500);
+}
+
+function updateAmmo(){
+  const ammoEl = document.getElementById('ammo');
+  if(state.hasGun){
+    ammoEl.style.display = 'block';
+    ammoEl.textContent = `ПАТРОНЫ: ${'●'.repeat(state.ammo)}${'○'.repeat(state.maxAmmo - state.ammo)}`;
+    document.getElementById('reloadBtn').style.display = state.ammo < state.maxAmmo ? 'block' : 'none';
+  } else {
+    ammoEl.style.display = 'none';
+    document.getElementById('reloadBtn').style.display = 'none';
+  }
+}
+
+function showMessage(text){
+  const el = document.getElementById('message');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(showMessage._t);
+  showMessage._t = setTimeout(() => el.classList.remove('show'), 1500);
+}
+
+const gunBtn = document.getElementById('gunBtn');
+const reloadBtn = document.getElementById('reloadBtn');
+const motoBtn = document.getElementById('motoBtn');
+const closeViewer = document.getElementById('closeViewer');
+
+gunBtn.addEventListener('click', () => {
+  state.hasGun = !state.hasGun;
+  gunGroup.visible = state.hasGun;
+  gunBtn.textContent = state.hasGun ? '🔫 УБРАТЬ' : ' РУЖЬЁ';
+  document.getElementById('crosshair').style.display = state.hasGun ? 'none' : 'block';
+  updateAmmo();
+  showMessage(state.hasGun ? 'РУЖЬЁ ВЗЯТО' : 'РУЖЬЁ УБРАНО');
+});
+
+reloadBtn.addEventListener('click', () => reload());
+motoBtn.addEventListener('click', () => toggleMoto());
+closeViewer.addEventListener('click', () => toggleViewer());
+
+const clock = new THREE.Clock();
+const fpsEl = document.getElementById('fps');
+let frameCount = 0, lastFpsTime = 0;
+const forward = new THREE.Vector3();
+const right = new THREE.Vector3();
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  const t = clock.getElapsedTime();
+
+  frameCount++;
+  if(t - lastFpsTime >= 1){
+    fpsEl.textContent = frameCount + ' FPS';
+    frameCount = 0;
+    lastFpsTime = t;
+  }
+
+  if(state.onMoto){
+    const camOffset = new THREE.Vector3(0, 2, 3);
+    camera.position.copy(motoPosition).add(camOffset);
+    camera.lookAt(motoPosition.x, motoPosition.y + 1, motoPosition.z);
+    
+    if(state.motoRunning){
+      state.motoRPM = 800 + Math.sin(t*5)*100 + Math.random()*50;
+      updateEngineSound(state.motoRPM);
+      document.querySelector('#rpm .value').textContent = Math.round(state.motoRPM);
+    }
+  } else {
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = state.yaw;
+    camera.rotation.x = state.pitch;
+
+    let mx = state.moveX, mz = state.moveZ;
+    if(keys['w'] || keys['arrowup']) mz = -1;
+    if(keys['s'] || keys['arrowdown']) mz = 1;
+    if(keys['a'] || keys['arrowleft']) mx = -1;
+    if(keys['d'] || keys['arrowright']) mx = 1;
+
+    forward.set(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
+    right.set(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
+    camera.position.addScaledVector(forward, -mz*state.speed);
+    camera.position.addScaledVector(right, mx*state.speed);
+
+    const lim = 4.5;
+    camera.position.x = Math.max(-lim, Math.min(lim, camera.position.x));
+    camera.position.z = Math.max(-lim, Math.min(lim, camera.position.z));
+    camera.position.y = 1.6;
+    
+    const distToMoto = camera.position.distanceTo(motoPosition);
+    motoBtn.style.display = distToMoto < 3 ? 'block' : 'none';
+  }
+
+  flameMesh.scale.y = 1 + Math.sin(t*10)*0.2;
+  candleLight.intensity = 3 + Math.sin(t*10)*0.5;
+
+  fireLight.intensity = 3.5 + Math.sin(t*8)*0.8 + Math.sin(t*13)*0.4 + Math.random()*0.3;
+  fireLight2.intensity = 1.5 + Math.sin(t*10+1)*0.5;
+  fireParticles.forEach(p => {
+    const d = p.userData;
+    const life = ((t * d.speed + d.phase) % 1);
+    p.position.y = d.baseY + life * 0.5;
+    p.position.x = d.baseX + Math.sin(t*2 + d.phase)*0.05;
+    p.scale.set(d.size * (1 - life*0.5), d.size * (0.5 + life*0.8), 1);
+    p.material.opacity = (1 - life) * 0.9;
+    p.rotation.y += dt * 2;
+  });
+
+  if(state.hasGun && !state.onMoto){
+    if(state.recoil > 0){
+      state.recoil -= dt * 4;
+      if(state.recoil < 0) state.recoil = 0;
+    }
+    const bobX = Math.sin(t*1.5) * 0.005 * (Math.abs(state.moveX) + Math.abs(state.moveZ));
+    const bobY = Math.abs(Math.sin(t*3)) * 0.008 * (Math.abs(state.moveX) + Math.abs(state.moveZ));
+    gunGroup.position.x = 0.25 + bobX;
+    gunGroup.position.y = -0.25 + bobY + state.recoil * 0.08;
+    gunGroup.position.z = -0.5 + state.recoil * 0.15;
+    gunGroup.rotation.x = -state.recoil * 0.3;
+    gunGroup.rotation.y = -0.05 + state.recoil * 0.1;
+    if(muzzleFlash.material.opacity > 0){
+      muzzleFlash.material.opacity -= dt * 8;
+      if(muzzleFlash.material.opacity < 0) muzzleFlash.material.opacity = 0;
+    }
+    if(shotLight.intensity > 0){
+      shotLight.intensity -= dt * 40;
+      if(shotLight.intensity < 0) shotLight.intensity = 0;
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+setTimeout(() => {
+  document.getElementById('loading').classList.add('hidden');
+  animate();
+}, 800);
+
+</script>
+</body>
+</html>
+```
